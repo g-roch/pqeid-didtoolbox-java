@@ -6,6 +6,9 @@ import com.nimbusds.jose.crypto.bc.BouncyCastleProviderSingleton;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jose.jwk.MLDSAKey;
+import com.nimbusds.jose.jwk.gen.MLDSAKeyGenerator;
+import com.nimbusds.jose.JWSAlgorithm;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.util.io.pem.PemObject;
 
@@ -14,6 +17,7 @@ import java.nio.file.*;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.InvalidKeySpecException;
 
@@ -66,6 +70,98 @@ public final class JwkUtils {
         var publicKey = (ECPublicKey) PemUtils.parsePemPublicKey(Files.newBufferedReader(ecPublicPemPath));
 
         return new ECKey.Builder(Curve.P_256, publicKey).keyID(kid).build().toPublicJWK().toJSONString();
+    }
+
+    /**
+     * Loads a public key from the specified PEM file and returns its JWK JSON representation, dispatching
+     * on the key's actual type: EC P-256 (see {@link #loadECPublicJWKasJSON(Path, String)}) or ML-DSA
+     * (PQEID: any of ML-DSA-44/65/87, represented as an AKP JWK).
+     * <p>
+     * Unlike {@link #loadECPublicJWKasJSON(Path, String)}, this does not require the PEM file to contain
+     * an EC key - {@link PemUtils#parsePemPublicKey(Reader)} already determines the key's algorithm from
+     * its {@code SubjectPublicKeyInfo}, so only the JWK-building step below needed to stop assuming EC.
+     *
+     * @param publicPemPath to file featuring an EC P-256 or ML-DSA public key in PEM format
+     * @param kid           the ID (kid) of the JWK that can be used to match this key.
+     *                      A regular case-sensitive string featuring no URIs reserved characters is expected.
+     *                      Otherwise, {@link IllegalArgumentException} is thrown
+     * @return JSON object string representation of the public JWK
+     * @throws IOException             if the file couldn't be read
+     * @throws InvalidKeySpecException if the given key specification is inappropriate for the key factory to produce a public key
+     */
+    public static String loadPublicJWKasJSON(Path publicPemPath, String kid) throws IOException, InvalidKeySpecException {
+        if (!Files.isReadable(publicPemPath)) {
+            throw new FileNotFoundException(String.format("The file '%s' doesn't exist.", publicPemPath));
+        }
+
+        if (!kid.matches("[a-zA-Z0-9~._-]+")) {
+            throw new IllegalArgumentException(String.format("The supplied key ID (kid) of the JWK '%s' must be a regular case-sensitive string featuring no URIs reserved characters", kid));
+        }
+
+        PublicKey publicKey = PemUtils.parsePemPublicKey(Files.newBufferedReader(publicPemPath));
+
+        if (publicKey instanceof ECPublicKey ecPublicKey) {
+            return new ECKey.Builder(Curve.P_256, ecPublicKey).keyID(kid).build().toPublicJWK().toJSONString();
+        }
+
+        try {
+            // PQEID: MLDSAKey infers the ML-DSA parameter set (44/65/87) from the public key itself.
+            return new MLDSAKey.Builder(publicKey).keyID(kid).build().toPublicJWK().toJSONString();
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unsupported public key type: " + publicKey.getClass().getName(), e);
+        }
+    }
+
+    /**
+     * PQEID: generates a new ML-DSA-44 key pair (in <a href="https://datatracker.ietf.org/doc/html/rfc7517#appendix-A.1">JWKS</a>
+     * format, as an AKP JWK). If {@code keyPairPemFile} is supplied, the key pair is exported in
+     * <a href="https://en.wikipedia.org/wiki/Privacy-Enhanced_Mail">PEM</a> format (PKCS8 private key,
+     * X.509 SubjectPublicKeyInfo public key) - mirrors {@link #generatePublicEC256(String, File, boolean)}.
+     *
+     * @param kid            the ID of the JWK, that can be used to match a specific key
+     * @param keyPairPemFile if not {@code null}, the file where a generated key pair will be stored
+     *                       (in PEM format)
+     * @param forceOverwrite the flag controlling whether the existing PEM files should be overwritten or not
+     * @return a new public ML-DSA-44 JWK (in JSON format).
+     * @throws IOException if persisting a key pair fails
+     */
+    public static String generatePublicMLDSA44(String kid, File keyPairPemFile, boolean forceOverwrite) throws IOException {
+
+        MLDSAKey mldsaJwk;
+        try {
+            mldsaJwk = new MLDSAKeyGenerator(JWSAlgorithm.ML_DSA_44).keyID(kid).generate();
+        } catch (JOSEException e) {
+            throw new IllegalArgumentException(e);
+        }
+
+        if (keyPairPemFile != null) {
+
+            if (!keyPairPemFile.exists() || forceOverwrite) {
+
+                createPrivateFile(keyPairPemFile, forceOverwrite);
+
+                try {
+                    try (Writer w = Files.newBufferedWriter(keyPairPemFile.toPath());
+                         JcaPEMWriter pemWriter = new JcaPEMWriter(w)) {
+                        // as specified by https://www.rfc-editor.org/rfc/rfc5208 (PKCS8)
+                        pemWriter.writeObject(new PemObject("PRIVATE KEY", mldsaJwk.toPrivateKey().getEncoded()));
+                    }
+
+                    try (JcaPEMWriter pemWriterPub = new JcaPEMWriter(Files.newBufferedWriter(Path.of(keyPairPemFile.getPath() + ".pub")))) {
+                        pemWriterPub.writeObject(new PemObject("PUBLIC KEY", mldsaJwk.toPublicKey().getEncoded()));
+                    }
+                } catch (JOSEException e) {
+                    throw new IllegalArgumentException(e);
+                }
+
+            } else {
+                throw new IOException("The PEM file(s) exist(s) already and will remain intact until overwrite mode is engaged: " + keyPairPemFile.getPath());
+            }
+        }
+
+        var publicJwkJsonObject = JsonParser.parseString(mldsaJwk.toPublicJWK().toJSONString()).getAsJsonObject();
+
+        return publicJwkJsonObject.toString();
     }
 
     /**

@@ -3,7 +3,6 @@ package ch.admin.bj.swiyu.didtoolbox.jcommander;
 import ch.admin.bj.swiyu.didtoolbox.jcommander.validator.PemFileParameterValidator;
 import ch.admin.bj.swiyu.didtoolbox.jcommander.validator.VerificationMethodKeyParametersValidator;
 import com.beust.jcommander.Parameter;
-import org.bouncycastle.jcajce.provider.asymmetric.mldsa.MLDSAKeyFactorySpi;
 
 import java.io.File;
 import java.util.HashSet;
@@ -43,14 +42,14 @@ public class AbstractKeyMaterialDidLogCommand extends AbstractDidLogCommandBase 
     public boolean shouldGenerateNextVerifyingKeyPem;
 
     @Parameter(names = {PARAM_NAME_LONG_ASSERTION_METHOD_KEYS, PARAM_NAME_SHORT_ASSERTION_METHOD_KEYS},
-            description = "One or more assertion method parameter(s) - each parameter consists of a (comma-separated) key name and a PEM file containing EC P-256 public/verifying key",
+            description = "One or more assertion method parameter(s) - each parameter consists of a (comma-separated) key name and a PEM file containing an EC P-256 or ML-DSA public/verifying key",
             listConverter = VerificationMethodParametersConverter.class,
             validateWith = VerificationMethodKeyParametersValidator.class,
             variableArity = true)
     public Set<VerificationMethodParameters> assertionMethodKeys;
 
     @Parameter(names = {PARAM_NAME_LONG_AUTHENTICATION_METHOD_KEYS, PARAM_NAME_SHORT_AUTHENTICATION_METHOD_KEYS},
-            description = "One or more authentication method parameter(s) - each parameter consists of a (comma-separated) key name and a PEM file containing EC P-256 public/verifying key",
+            description = "One or more authentication method parameter(s) - each parameter consists of a (comma-separated) key name and a PEM file containing an EC P-256 or ML-DSA public/verifying key",
             listConverter = VerificationMethodParametersConverter.class,
             validateWith = VerificationMethodKeyParametersValidator.class,
             variableArity = true)

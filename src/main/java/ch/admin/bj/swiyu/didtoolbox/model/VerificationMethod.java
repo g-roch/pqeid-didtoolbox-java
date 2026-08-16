@@ -61,8 +61,13 @@ public interface VerificationMethod {
         var crv = jsonObj.get("crv");
         var x = jsonObj.get("x");
         var y = jsonObj.get("y");
-        if (kty == null || crv == null || x == null || y == null) {
-            throw new VerificationMethodException("The supplied string representing a public key JWK does not feature all the required parameters ('kty', 'crv', 'x' or 'y'");
+        // PQEID: an AKP JWK (ML-DSA, kty="AKP") has no crv/x/y - it carries its public key
+        // material in "pub" instead. Accept either shape.
+        var pub = jsonObj.get("pub");
+        boolean isEcShaped = crv != null && x != null && y != null;
+        boolean isAkpShaped = pub != null;
+        if (kty == null || !(isEcShaped || isAkpShaped)) {
+            throw new VerificationMethodException("The supplied string representing a public key JWK does not feature all the required parameters ('kty' and either 'crv'/'x'/'y' or 'pub')");
         }
 
         return new VerificationMethod() {

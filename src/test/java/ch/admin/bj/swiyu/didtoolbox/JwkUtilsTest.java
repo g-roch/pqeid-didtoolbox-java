@@ -279,4 +279,21 @@ class JwkUtilsTest {
             assertEquals("my-mldsa-key-01", jwkJsonObject.get("kid").getAsString());
         });
     }
+
+     /** PQEID: a composite (ML-DSA-65 + ECDSA P-256) public key becomes an AKP JWK the resolver and nimbus understand. */
+    @Test
+    void testLoadPublicJWKasJSON_composite() {
+        assertDoesNotThrow(() -> {
+            var json = JwkUtils.loadPublicJWKasJSON(Path.of("src/test/data/composite-key-01.pub"), "assert-key-01"); // MUT
+            var obj = JsonParser.parseString(json).getAsJsonObject();
+            assertEquals("AKP", obj.get("kty").getAsString());
+            assertEquals("ML-DSA-65-ES256", obj.get("alg").getAsString());
+            assertEquals("assert-key-01", obj.get("kid").getAsString());
+            assertFalse(obj.has("priv"));
+            // round trip: nimbus parses it back as a composite key of the expected size
+            var jwk = com.nimbusds.jose.jwk.JWK.parse(json);
+            assertInstanceOf(com.nimbusds.jose.jwk.CompositeMLDSAKey.class, jwk);
+            assertEquals(2017 * 8, jwk.size());
+        });
+    }
 }

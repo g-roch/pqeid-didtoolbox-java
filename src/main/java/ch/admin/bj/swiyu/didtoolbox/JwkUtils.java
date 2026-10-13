@@ -8,6 +8,7 @@ import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.MLDSAKey;
 import com.nimbusds.jose.jwk.gen.MLDSAKeyGenerator;
+import com.nimbusds.jose.jwk.CompositeMLDSAKey;
 import com.nimbusds.jose.JWSAlgorithm;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.util.io.pem.PemObject;
@@ -81,7 +82,7 @@ public final class JwkUtils {
      * an EC key - {@link PemUtils#parsePemPublicKey(Reader)} already determines the key's algorithm from
      * its {@code SubjectPublicKeyInfo}, so only the JWK-building step below needed to stop assuming EC.
      *
-     * @param publicPemPath to file featuring an EC P-256 or ML-DSA public key in PEM format
+     * @param publicPemPath to file featuring an EC P-256, ML-DSA or composite ML-DSA-65-ES256 public key in PEM format
      * @param kid           the ID (kid) of the JWK that can be used to match this key.
      *                      A regular case-sensitive string featuring no URIs reserved characters is expected.
      *                      Otherwise, {@link IllegalArgumentException} is thrown
@@ -102,6 +103,11 @@ public final class JwkUtils {
 
         if (publicKey instanceof ECPublicKey ecPublicKey) {
             return new ECKey.Builder(Curve.P_256, ecPublicKey).keyID(kid).build().toPublicJWK().toJSONString();
+        }
+
+        if (publicKey instanceof org.bouncycastle.jcajce.CompositePublicKey) {
+            // PQEID: composite PQ/T hybrid key (e.g. ML-DSA-65-ES256), an AKP JWK whose alg names the composite
+            return CompositeMLDSAKey.fromJCA(publicKey, null, kid).toPublicJWK().toJSONString();
         }
 
         try {

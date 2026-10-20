@@ -41,7 +41,7 @@ public class CreateDidLogCommand extends AbstractKeyMaterialDidLogCommand {
     public URL identifierRegistryUrl;
 
     @Parameter(names = {"--method-version", "-m"},
-            description = "Defines the DID method specification version to use when generating a DID log. Case-insensitive. Valid values: '" + DidMethodEnum.TDW_0_3_STRING + "', '" + DidMethodEnum.WEBVH_1_0_STRING + "'",
+            description = "Defines the DID method specification version to use when generating a DID log. Case-insensitive. Valid values: '" + DidMethodEnum.TDW_0_3_STRING + "', '" + DidMethodEnum.WEBVH_1_0_STRING + "', 'did:webvh:1.0-pqeid' (PQEID: hybrid ML-DSA-65-Ed25519 log proofs)",
             converter = DidMethodParameterConverter.class,
             validateWith = DidMethodParameterValidator.class,
             defaultValueDescription = DidMethodEnum.WEBVH_1_0_STRING)

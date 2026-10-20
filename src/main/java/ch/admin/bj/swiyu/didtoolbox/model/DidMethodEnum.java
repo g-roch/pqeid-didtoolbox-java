@@ -28,6 +28,21 @@ public enum DidMethodEnum {
         public boolean isWebVh10() {
             return true;
         }
+    },
+    /**
+     * PQEID: did:webvh 1.0 whose log entries are signed with the hybrid {@code mldsa65-ed25519-jcs-pqeid} suite
+     * (see docs/pqeid-hybrid-did-log-suite.md in the pqeid repo). Not interoperable by design.
+     */
+    WEBVH_1_0_PQEID("webvh", "1.0-pqeid") {
+        @Override
+        public boolean isWebVh10() {
+            return true; // same did:webvh 1.0 processing, only the log-proof suite differs
+        }
+
+        @Override
+        public boolean isPqeid() {
+            return true;
+        }
     };
 
     /**
@@ -69,6 +84,8 @@ public enum DidMethodEnum {
             return DidMethodEnum.TDW_0_3;
         } else if (str.equalsIgnoreCase(DidMethodEnum.WEBVH_1_0.toString())) {
             return DidMethodEnum.WEBVH_1_0;
+        } else if (str.equalsIgnoreCase(DidMethodEnum.WEBVH_1_0_PQEID.toString())) {
+            return DidMethodEnum.WEBVH_1_0_PQEID;
         }
 
         throw new ParseException("Unknown or unsupported DID method: " + str, 0);
@@ -79,6 +96,13 @@ public enum DidMethodEnum {
     }
 
     public boolean isWebVh10() {
+        return false;
+    }
+
+    /**
+     * @return {@code true} for the PQEID hybrid DID-log version ({@link #WEBVH_1_0_PQEID})
+     */
+    public boolean isPqeid() {
         return false;
     }
 

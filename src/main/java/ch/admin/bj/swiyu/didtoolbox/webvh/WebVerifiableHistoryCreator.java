@@ -9,6 +9,7 @@ import ch.admin.bj.swiyu.didtoolbox.context.DidLogCreatorStrategy;
 import ch.admin.bj.swiyu.didtoolbox.context.DidLogCreatorStrategyException;
 import ch.admin.bj.swiyu.didtoolbox.context.IncompleteDidLogEntryBuilderException;
 import ch.admin.bj.swiyu.didtoolbox.model.*;
+import ch.admin.bj.swiyu.didtoolbox.vc_data_integrity.MlDsa65Ed25519JcsPqeidVcDataIntegrityCryptographicSuite;
 import ch.admin.bj.swiyu.didtoolbox.vc_data_integrity.VcDataIntegrityCryptographicSuite;
 import ch.admin.bj.swiyu.didtoolbox.vc_data_integrity.VcDataIntegrityCryptographicSuiteException;
 import ch.admin.eid.did_sidekicks.DidDoc;
@@ -452,7 +453,10 @@ public class WebVerifiableHistoryCreator extends AbstractDidLogEntryBuilder impl
 
     @Override
     protected DidMethodEnum getDidMethod() {
-        return DidMethodEnum.WEBVH_1_0;
+        // PQEID: the log-proof suite decides the method version (the resolver binds them the same way)
+        return getCryptoSuite() instanceof MlDsa65Ed25519JcsPqeidVcDataIntegrityCryptographicSuite
+                ? DidMethodEnum.WEBVH_1_0_PQEID
+                : DidMethodEnum.WEBVH_1_0;
     }
 
     @Override

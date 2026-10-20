@@ -6,10 +6,12 @@ import ch.admin.bj.swiyu.didtoolbox.model.*;
 import ch.admin.bj.swiyu.didtoolbox.securosys.primus.PrimusEd25519VerificationMethodKeyProviderImpl;
 import ch.admin.bj.swiyu.didtoolbox.securosys.primus.HsmProofOfPossessionJWSSigner;
 import ch.admin.bj.swiyu.didtoolbox.vc_data_integrity.EdDsaJcs2022VcDataIntegrityCryptographicSuite;
+import ch.admin.bj.swiyu.didtoolbox.vc_data_integrity.MlDsa65Ed25519JcsPqeidVcDataIntegrityCryptographicSuite;
 import ch.admin.bj.swiyu.didtoolbox.vc_data_integrity.VcDataIntegrityCryptographicSuite;
 import ch.admin.bj.swiyu.didtoolbox.vc_data_integrity.VcDataIntegrityCryptographicSuiteException;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.ParameterException;
+import com.google.gson.JsonParser;
 import com.nimbusds.jose.JOSEException;
 
 import java.io.File;
@@ -119,6 +121,12 @@ public final class JCommanderRunner {
 
         var forceOverwrite = command.forceOverwrite;
 
+        if (didMethod.isPqeid()) {
+            // PQEID: no silent classical defaults in a hybrid DID: both verification methods must be supplied, and composite
+            requireHybridVerificationMethods("--assert", command.assertionMethodKeys);
+            requireHybridVerificationMethods("--auth", command.authenticationKeys);
+        }
+
         var assertionMethods = new HashSet<VerificationMethod>();
         var assertionMethodKeys = command.assertionMethodKeys;
         if (assertionMethodKeys != null && !assertionMethodKeys.isEmpty()) {
@@ -144,7 +152,19 @@ public final class JCommanderRunner {
         }
 
         VcDataIntegrityCryptographicSuite cryptoSuite = getCryptoGraphicSuite(command);
-        if (cryptoSuite == null) {
+        if (didMethod.isPqeid()) {
+            // PQEID: a did:webvh:1.0-pqeid log is signed with a (new) composite ML-DSA-65-Ed25519 update key only
+            if (cryptoSuite != null
+                    || (command.verifyingKeyPemFiles != null && !command.verifyingKeyPemFiles.isEmpty())
+                    || command.shouldGenerateNextVerifyingKeyPem
+                    || (command.nextVerifyingKeyPemFiles != null && !command.nextVerifyingKeyPemFiles.isEmpty())) {
+                throw new CommandException(didMethod + " uses a generated composite update key only:"
+                        + " Ed25519 signing/verifying keys and key pre-rotation options are not supported with it");
+            }
+            var hybridSuite = new MlDsa65Ed25519JcsPqeidVcDataIntegrityCryptographicSuite();
+            storeCompositeKeysOnDisk(hybridSuite, command.forceOverwrite);
+            cryptoSuite = hybridSuite;
+        } else if (cryptoSuite == null) {
             var dalekSigner = new EdDsaJcs2022VcDataIntegrityCryptographicSuite();
             cryptoSuite = dalekSigner;
 
@@ -413,6 +433,54 @@ public final class JCommanderRunner {
             cryptoSuite.writePublicKeyPemFile(getPublicKeyFile().toPath());
         } catch (VcDataIntegrityCryptographicSuiteException ex) {
             throw new CommandException("Failed to persist PEM file(s) due to: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * PQEID: the verification-method algorithms allowed in a {@code did:webvh:1.0-pqeid} DID document (hybrid only).
+     */
+    static final Set<String> PQEID_VERIFICATION_METHOD_ALGS = Set.of("ML-DSA-65-ES256");
+
+    /**
+     * PQEID: with {@code did:webvh:1.0-pqeid}, a verification method must be supplied (no default key is generated, since the
+     * default would be a classical EC P-256 key) and must be a hybrid AKP key from {@link #PQEID_VERIFICATION_METHOD_ALGS}.
+     */
+    static void requireHybridVerificationMethods(String option, Set<VerificationMethodParameters> keys) throws CommandException {
+        if (keys == null || keys.isEmpty()) {
+            throw new CommandException(option + " is required with " + DidMethodEnum.WEBVH_1_0_PQEID
+                    + ": no default key is generated (it would be a classical EC P-256 key)");
+        }
+        for (var param : keys) {
+            var jwk = JsonParser.parseString(param.jwk).getAsJsonObject();
+            var kty = jwk.has("kty") ? jwk.get("kty").getAsString() : null;
+            var alg = jwk.has("alg") ? jwk.get("alg").getAsString() : null;
+            if (!"AKP".equals(kty) || !PQEID_VERIFICATION_METHOD_ALGS.contains(alg)) {
+                throw new CommandException(option + " key '" + param.key + "' must be a hybrid " + PQEID_VERIFICATION_METHOD_ALGS
+                        + " key with " + DidMethodEnum.WEBVH_1_0_PQEID + ", got kty=" + kty + ", alg=" + alg);
+            }
+        }
+    }
+
+    /**
+     * PQEID: stores the composite update key in the ```.didtoolbox``` directory: the secret key multibase in
+     * {@code id_mldsa65_ed25519} (owner-only permissions) and the public multikey in {@code id_mldsa65_ed25519.pub}.
+     */
+    void storeCompositeKeysOnDisk(MlDsa65Ed25519JcsPqeidVcDataIntegrityCryptographicSuite cryptoSuite, boolean forceOverwrite)
+            throws CommandException, DidLogCreatorStrategyException {
+        createPrivateKeyDirectoryIfDoesNotExist(getOutputDir().getPath());
+        var privateKeyFile = new File(getOutputDir(), "id_mldsa65_ed25519");
+        var publicKeyFile = new File(getOutputDir(), "id_mldsa65_ed25519.pub");
+        if ((privateKeyFile.exists() || publicKeyFile.exists()) && !forceOverwrite) {
+            throw new CommandException("The composite key file(s) exist(s) already and will remain intact until overwrite mode is engaged: "
+                    + privateKeyFile.getPath());
+        }
+        try {
+            // CAUTION A private key file MUST always be created with access restricted to the current user only
+            FilesPrivacy.createPrivateFile(privateKeyFile.toPath(), forceOverwrite);
+            Files.writeString(privateKeyFile.toPath(), cryptoSuite.getSecretKeyMultibase() + System.lineSeparator());
+            Files.writeString(publicKeyFile.toPath(), cryptoSuite.getVerificationKeyMultibase() + System.lineSeparator());
+        } catch (IOException ex) {
+            throw new CommandException("Failed to persist the composite key file(s) due to: " + ex.getMessage(), ex);
         }
     }
 
